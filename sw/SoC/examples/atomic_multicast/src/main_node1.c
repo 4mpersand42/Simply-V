@@ -60,8 +60,8 @@ int main(void){
     Node *n1 = init_node(1);
     if(!n1) return 1;
 
-    if(mq_setup(n1) < 0) return 1;
-
+    // TODO: AGGIUNGERE IL CODICE PER INIZIALIZZARE IL CMAC 
+    
     // In un setup a due eseguibili: avvia prima node2, poi node1.
     sleep(1);
 

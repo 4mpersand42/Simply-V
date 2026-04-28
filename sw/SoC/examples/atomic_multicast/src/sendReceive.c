@@ -1,6 +1,7 @@
 #include "sendReceive.h"
 #include "amulticast_types.h"
-#include "xlnx_cmac.h"
+#include "simplyv.h"
+#include <cstddef>
 #include <linux/if_ether.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -14,9 +15,15 @@
 #include <sys/msg.h>
 #include <unistd.h>
 #include <netinet/in.h>
-#define BASEADDR 2
-#define DATA_BASEADDR 2
 
+// CMAC Base Address
+#define CMAC_BASEADDR   ((uintptr_t)_peripheral_CMAC_CSR_start)
+// AXIS FIFO register offsets in xlnx_cmac.h already include +0x10000.
+#define AXIS_FIFO_BASEADDR   ((uintptr_t)_peripheral_CMAC_CSR_start)
+// Axis FIFO Data Base Address
+#define AXIS_FIFO_DATA_BASEADDR   ((uintptr_t)_peripheral_CMAC_DATA_start)
+
+#define ETH_FRAME_BYTES        64u
 
 static long sysv_mtype_for(msgtype_t type){
     if(type == MULTICAST) return 1;
@@ -94,15 +101,20 @@ int acast_send(Node* node, void* msg, msgtype_t type, g_id_t dst){
         return -1;
     }
 
-    uint32_t v;
-    // qui devo chiamare la primitiva del driver tx_axis_fifo_data
-    // per trasmettere quattro byte alla volta.
-    for(int i = 0; i < sizeof(union ethframe); i++){
-        memcpy(&v, p.buffer+i, sizeof(v));
-        tx_axis_fifo_data(BASEADDR, v, v, sizeof(v));
+    size_t tx_buf_size = sizeof(struct ethhdr) + MAXPAYLOAD_LEN;
+    // Padding Ethernet 
+    if(tx_buf_size < 60){
+        tx_buf_size = 60;
     }
 
-    return 1;
+    size_t byte_sent = xlnx_tx_axis_fifo_data(AXIS_FIFO_BASEADDR, AXIS_FIFO_DATA_BASEADDR, (const uint8_t*)p.buffer, tx_buf_size);
+
+    if(byte_sent > 0){
+        return 1;
+    }else{
+        return -1;
+    }
+    
 }
 
 // questa funzione si occupa di fare il parsing del messaggio ricevuto e di distinguere i diversi 
@@ -134,6 +146,7 @@ void* packet_to_heap_msg(const union ethframe *p){
     return NULL;
 }
 
+// Forse questo modo di ricevere i pacchetti non è il più efficiente
 void* acast_receive(Node* node, void* msg_unused, msgtype_t type){
     (void)msg_unused;
     if(!node){ errno = EINVAL; return NULL; }
@@ -142,12 +155,11 @@ void* acast_receive(Node* node, void* msg_unused, msgtype_t type){
     union ethframe p;
     memset(&p, 0, sizeof(p));
 
-    //La funzione riceve un intera frame ethernet.
-    bool received = false;
-    while(!received){
-        size_t rx_size = xlnx_rx_axis_fifo_data(AXIS_FIFO_BASEADDR, AXIS_FIFO_DATA_BASEADDR,p.buffer,ETH_FRAME_LEN);
-        if(rx_size == ETH_FRAME_LEN) received = true;
+    size_t received_bytes = xlnx_rx_axis_fifo_data(AXIS_FIFO_BASEADDR, AXIS_FIFO_DATA_BASEADDR, (uint8_t*)p.buffer, sizeof(p.buffer));
+    if(received_bytes > 0){
+        return packet_to_heap_msg(&p);
+    }else {
+        return NULL;
     }
-
-    return packet_to_heap_msg(&p);
+    
 }

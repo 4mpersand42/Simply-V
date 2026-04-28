@@ -58,8 +58,8 @@ int main(void){
     Node *n2 = init_node(2);
     if(!n2) return 1;
 
-    if(mq_setup(n2) < 0) return 1;
-
+    // TODO: AGGIUNGERE IL CODICE PER INIZIALIZZARE IL CMAC 
+    
     for(int i = 0; i < NUM_MESSAGES; i++){
         handle_one_multicast(n2);
     }
