@@ -2,6 +2,7 @@
 #include "amulticast_types.h"
 #include "xlnx_cmac.h"
 #include <linux/if_ether.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -141,16 +142,11 @@ void* acast_receive(Node* node, void* msg_unused, msgtype_t type){
     union ethframe p;
     memset(&p, 0, sizeof(p));
 
-
-    // qui devo chiamare la primitiva del driver tx_axis_fifo_data
-    // per ricevere quattro byte alla volta.
-    uint32_t v;
-    int ret=0;
-    for(int i = 0;i<sizeof(union ethframe);i++){
-        ret=rx_axis_fifo_data(BASEADDR, v);
-        if(ret>0){ //se non riceve niente non copiare niente 
-            memcpy(p.buffer+i, &v, sizeof(uint32_t));
-        }
+    //La funzione riceve un intera frame ethernet.
+    bool received = false;
+    while(!received){
+        size_t rx_size = xlnx_rx_axis_fifo_data(AXIS_FIFO_BASEADDR, AXIS_FIFO_DATA_BASEADDR,p.buffer,ETH_FRAME_LEN);
+        if(rx_size == ETH_FRAME_LEN) received = true;
     }
 
     return packet_to_heap_msg(&p);
