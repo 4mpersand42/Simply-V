@@ -5,14 +5,21 @@
 #include <stdlib.h>
 
 #define NUM_MESSAGES 3
+// CMAC Base Address
+#define CMAC_BASEADDR   ((uintptr_t)_peripheral_CMAC_CSR_start)
+// AXIS FIFO register offsets in xlnx_cmac.h already include +0x10000.
+#define AXIS_FIFO_BASEADDR   ((uintptr_t)_peripheral_CMAC_CSR_start)
+// Axis FIFO Data Base Address
+#define AXIS_FIFO_DATA_BASEADDR   ((uintptr_t)_peripheral_CMAC_DATA_start)
 
 static void send_propose_all(Node *node, const multicast_msg_t *m){
-    propose_msg_t *p = create_propose_msg(m->msg_id, node->g_id, node->lts[m->msg_id]);
+    propose_msg_t p;
+    create_propose_msg(p, m->msg_id, node->g_id, node->lts[m->msg_id]);
     printf("Invio proposte...\n");
     for(int i = 0; i < m->dst_count; i++){
         if(acast_send(node, p, PROPOSE, m->dstgrp[i]) < 0){
-            perror("send(PROPOSE)");
-            exit(1);
+            printf("ERROR send(PROPOSE)");
+            return;
         }
     }
     printf("Proposte inviate\n");
@@ -20,15 +27,16 @@ static void send_propose_all(Node *node, const multicast_msg_t *m){
 }
 
 static void handle_one_multicast(Node *node){
-    multicast_msg_t *m = (multicast_msg_t*)acast_receive(node, NULL, MULTICAST);
+    multicast_msg_t m; 
+    acast_receive(&m, node, NULL, MULTICAST);
     if(!m){
-        perror("receive(MULTICAST)");
-        exit(1);
+        printf("ERROR receive(MULTICAST)");
+        return;
     }
 
     if(handle_multicast(node, m) < 0){
-        fprintf(stderr, "handle_multicast failed\n");
-        exit(1);
+        printf("handle_multicast failed\n");
+        return;
     }
 
     // All-to-all propose
@@ -36,35 +44,33 @@ static void handle_one_multicast(Node *node){
 
     // Regola di completamento: attendo dst_count propose
     for(int i = 0; i < m->dst_count; i++){
-        propose_msg_t *p = (propose_msg_t*)acast_receive(node, NULL, PROPOSE);
+        propose_msg_t p;
+        acast_receive(&p, node, NULL, PROPOSE);
         if(!p){
-            perror("receive(PROPOSE)");
-            exit(1);
+            printf("ERROR receive(PROPOSE)");
+            return;
         }
 
         if(handle_propose(node, p) < 0){
-            fprintf(stderr, "handle_propose failed\n");
-            exit(1);
+            printf("handle_propose failed\n");
+            return;
         }
-
-        free(p);
     }
-
-    free(m);
 }
 
 int main(void){
     // nodo 2
-    Node *n2 = init_node(2);
-    if(!n2) return 1;
+    Node n2;
+    init_node(n2, 2);
 
-    // TODO: AGGIUNGERE IL CODICE PER INIZIALIZZARE IL CMAC 
-    
+
+    // DONE: AGGIUNGERE IL CODICE PER INIZIALIZZARE IL CMAC 
+        xlnx_cmac_init(CMAC_BASEADDR);
+        xlnx_axis_fifo_init(AXIS_FIFO_BASEADDR);
     for(int i = 0; i < NUM_MESSAGES; i++){
         handle_one_multicast(n2);
     }
 
     // mq_cleanup(n2, 1);
-    destroy_node(n2);
     return 0;
 }

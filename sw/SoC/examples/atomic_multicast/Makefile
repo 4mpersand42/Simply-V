@@ -18,7 +18,7 @@ PROGRAM_NAME = $(shell basename $$PWD)
 #####################
 # Paths and Folders #
 #####################
-
+SW_SOC_ROOT = /home/fr3nk/Documents/Simply-V/sw
 SRC_DIR     = src
 OBJ_DIR     = obj
 INC_DIR     = inc

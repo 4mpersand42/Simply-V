@@ -1,7 +1,6 @@
 #ifndef _AMCAST_TYPES_H_
 #define _AMCAST_TYPES_H_
-#include <stdlib.h>
-#include <stdbool.h>
+#include "simplyv.h"
 
 #define MAXPAYLOAD_LEN 20
 #define MAX_NUMBER_OF_GROUPS 8 //Per ora suppongo che ogni gruppo sia formato da un unico processo reliable che quindi non può fallire 
@@ -66,7 +65,7 @@ typedef struct {
     ts_t gts[MAX_MESSAGES];
     phase_t phase[MAX_MESSAGES];
     multicast_msg_t msg_queue[MAX_MESSAGES];
-    bool delivered[MAX_MESSAGES];    
+    uint8_t delivered[MAX_MESSAGES];    
     // PROPOSE per-messaggio (necessario per all-to-all)
     propose_msg_t props[MAX_MESSAGES][MAX_NUMBER_OF_GROUPS];
     int propose_count[MAX_MESSAGES];
@@ -82,25 +81,25 @@ typedef struct {
 // ==== FUNZIONI PER LA GESTIONE DELLE STRUTTURE ====
 
 // Costruttore del nodo
-Node *init_node(g_id_t g_id);
+void init_node(Node &node, g_id_t g_id);
 // Distruttore del nodo
-void destroy_node(Node* node);
+//void destroy_node(Node* node);
 
 // Funzione per la creazione di un messaggio multicast: 
 // per costruire questo messaggio è necessario fornire il payload,
 // l'id del messaggio e la lista di destinatari
-multicast_msg_t *create_multicast_msg(payload_t payload, int id, const g_id_t *dstgrp, int dst_count);
+void create_multicast_msg(multicast_msg_t &msg, payload_t payload, int id, const g_id_t *dstgrp, int dst_count);
 // Distruttore del messaggio multicast
-void destroy_multicast_msg(multicast_msg_t *msg);
+//void destroy_multicast_msg(multicast_msg_t *msg);
 
 // Costruttore del messaggio propose
-propose_msg_t *create_propose_msg(int id, g_id_t g_id, ts_t lts);
+void create_propose_msg(propose_msg_t &msg, int id, g_id_t g_id, ts_t lts);
 // Distruttore del messaggio propose
-void destroy_propose_msg(propose_msg_t *msg);
+//oid destroy_propose_msg(propose_msg_t *msg);
 
 // Funzione che restituisce true se due timestamp hanno lo stesso clock
 // e lo stesso g_id
-bool timestamp_cmp(ts_t a, ts_t b);
+uint8_t timestamp_cmp(ts_t a, ts_t b);
 
 // Funzione che riceve in ingresso due timestamps 
 // e restituisce quello con il clock più grande
