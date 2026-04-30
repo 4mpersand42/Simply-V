@@ -18,17 +18,17 @@ static long sysv_mtype_for(msgtype_t type){
 }
 
 uint16_t netbyteorder(uint16_t x){
-    // Determina la endianness del processore a runtime 
+    // Determine processor endianness at runtime
     union{
         uint16_t u16;
         uint8_t b[2];
     } t;
-    // copia 1 nell'area di memoria della union 
-    // che avendo anche un campo costituito da un vettore di interi unsigned a 8 bit 
-    // può essere scomposta in una parte più significativa e una meno 
+    // store 1 in the union memory area
+    // the union also exposes the value as a two-byte array
+    // allowing us to inspect the byte order
     t.u16 = 1; 
-    // Se 1 è stato copiato prima nella parte meno significativa allora il runtime è 
-    // little endian, devo eseguire lo swap per convertirlo in big endian
+    // If the least significant byte contains 1 the runtime is
+    // little-endian and we must swap to convert to big-endian
     if(t.b[0] == 1) {
         return (uint16_t)((x << 8) | (x >> 8));
     }
@@ -37,21 +37,20 @@ uint16_t netbyteorder(uint16_t x){
 
 
 int acast_send(Node* node, void* msg, msgtype_t type, g_id_t dst){
-    // Questi indirizzi sono degli stub, bisogna cambiare l'interfaccia delle funzioni
-    // acast_send/receive per fare in modo che passino anche l'indirizzo MAC del destinatario
-    // L'indirizzo MAC del mittente deve essere recuperato dall'interfaccia del NIC
+    // These addresses are stubs; the acast_send/receive interface
+    // should be changed so that the recipient MAC address is passed
+    // The sender MAC address must be retrieved from the NIC interface
     unsigned char dest[] = {0x00,0x12,0x34,0x56,0x78,0x90};
     unsigned char src[] = {0x90,0x87,0x65,0x43,0x21,0x00};
     unsigned short proto = 0x1234;
 
-    (void)node;
-    if(!msg){ errno = EINVAL; return -1; }
+    if(msg == NULL){ return -1; }
 
     union ethframe p;
     memset(&p, 0, sizeof(p));
 
     if(type == MULTICAST){
-        // Serializza il messaggio 
+        // Serialize the message
         unsigned char buffer[sizeof(multicast_msg_t)];
         memcpy(buffer,(const unsigned char*)msg,sizeof(multicast_msg_t));
         for(int i = 0; i<sizeof(buffer);i++){
@@ -59,34 +58,33 @@ int acast_send(Node* node, void* msg, msgtype_t type, g_id_t dst){
         }
         printf("\n");
 
-        // Riempi i campi della frame 
-        memcpy(p.field.header.h_dest, dest, ETH_ALEN); // riempi il campo MAC destinazione
-        memcpy(p.field.header.h_source, src, ETH_ALEN); // riempi il campo MAC sorgente 
-        p.field.header.h_proto = netbyteorder(proto); // riempi il campo MAC protocollo 
-        // copia il messaggio nel campo payload della frame
+        // Fill the frame fields
+        memcpy(p.field.header.h_dest, dest, ETH_ALEN); // fill destination MAC field
+        memcpy(p.field.header.h_source, src, ETH_ALEN); // fill source MAC field
+        p.field.header.h_proto = netbyteorder(proto); // fill protocol field
+        // copy the message into the frame payload field
         memcpy(p.field.data, buffer, sizeof(multicast_msg_t));
-        printf("Contenuto payload frame MULTICAST: \n");
+        printf("MULTICAST frame payload content:\n");
         for(int i = 0; i<ETH_DATA_LEN;i++){
             printf("%02x",p.field.data[i]);
         }
         printf("\n");
     }else if(type == PROPOSE){
-        // Serializza il messaggio 
+        // Serialize the message
         unsigned char buffer [sizeof(propose_msg_t)];
         memcpy(buffer,(const unsigned char*)msg,sizeof(propose_msg_t));
-        // Riempi i campi della frame 
-        memcpy(p.field.header.h_dest, dest, ETH_ALEN); // riempi il campo MAC destinazione
-        memcpy(p.field.header.h_source, src, ETH_ALEN); // riempi il campo MAC sorgente 
-        p.field.header.h_proto = netbyteorder(proto); // riempi il campo MAC protocollo 
-        // copia il messaggio nel campo payload della frame
+        // Fill the frame fields
+        memcpy(p.field.header.h_dest, dest, ETH_ALEN); // fill destination MAC field
+        memcpy(p.field.header.h_source, src, ETH_ALEN); // fill source MAC field
+        p.field.header.h_proto = netbyteorder(proto); // fill protocol field
+        // copy the message into the frame payload field
         memcpy(p.field.data, buffer, sizeof(propose_msg_t));
     }else{
-        errno = EINVAL;
         return -1;
     }
 
     size_t tx_buf_size = sizeof(struct ethhdr) + MAXPAYLOAD_LEN;
-    // Padding Ethernet 
+    // Ethernet padding
     if(tx_buf_size < 60){
         tx_buf_size = 60;
     }
@@ -98,23 +96,22 @@ int acast_send(Node* node, void* msg, msgtype_t type, g_id_t dst){
     }else{
         return -1;
     }
-    
+    return 1;
 }
 
-// questa funzione si occupa di fare il parsing del messaggio ricevuto e di distinguere i diversi 
-// tipi di messaggi. Un ipotetico unmarshalling deve essere implementato qui 
-// per ora ci limitiamo ad analizzare i bytes raw del payload della frame ethernet 
-// per distinguere tra le diverse tipologie di messaggio. Il tipo di messaggio sarà visibile
-// nelle prime due cifre esadecimali che corrispondono al primo byte corrispondenente al
-// campo type di entrambe le strutture di messaggio 
+// This function parses the received message and distinguishes the different
+// message types. A proper unmarshalling implementation should be added here.
+// For now we analyze the raw bytes of the ethernet frame payload
+// to distinguish between message types. The message type is visible
+// in the first payload byte which corresponds to the `type` field of the message structures
 void packet_to_heap_msg(void *pr, const union ethframe *p){
 
-    // Effettua il parsing della frame ricevuta e ne estrae il tipo 
-    // copiando il primo byte del campo payload della frame. 
+    // Parse the received frame and extract the type
+    // by copying the first byte of the frame payload
     msgtype_t type = p->field.data[0];
     
-    // "Unmarshalling" copia i dati raw della frame nella struttura corretta
-    // in base al tipo.
+    // Unmarshall: copy the raw frame data into the correct structure
+    // according to the message type.
     if(type == MULTICAST){
         memcpy(pr, p->field.data, sizeof(multicast_msg_t));
         return;
@@ -125,20 +122,23 @@ void packet_to_heap_msg(void *pr, const union ethframe *p){
     return;
 }
 
-// Forse questo modo di ricevere i pacchetti non è il più efficiente
-void acast_receive(void *pr, Node* node, void* msg_unused, msgtype_t type){
-    (void)msg_unused;
-    if(!node){ errno = EINVAL; return NULL; }
-    if(g_qid < 0){ errno = EBADF; return NULL; }
+// Maybe this way of receiving packets is not the most efficient
+void acast_receive(Node* node, void* msg, msgtype_t type){
+    if(!node){ 
+        return;
+ }
+    if(g_qid < 0){ 
+        return; 
+    }
 
     union ethframe p;
     memset(&p, 0, sizeof(p));
 
     size_t received_bytes = xlnx_rx_axis_fifo_data(AXIS_FIFO_BASEADDR, AXIS_FIFO_DATA_BASEADDR, (uint8_t*)p.buffer, sizeof(p.buffer));
     if(received_bytes > 0){
-        return packet_to_heap_msg(&pr, &p);
+        packet_to_heap_msg(msg, &p);
+        return;
     }else {
-        return NULL;
+        return;
     }
-    
 }

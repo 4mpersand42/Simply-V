@@ -3,7 +3,7 @@
 #include "simplyv.h"
 
 #define MAXPAYLOAD_LEN 20
-#define MAX_NUMBER_OF_GROUPS 8 //Per ora suppongo che ogni gruppo sia formato da un unico processo reliable che quindi non può fallire 
+#define MAX_NUMBER_OF_GROUPS 8 // For now assume each group is formed by a single reliable process which therefore cannot fail
 #define MAX_MESSAGES 64
 
 typedef unsigned int clk_t;
@@ -18,12 +18,11 @@ typedef struct {
 }ts_t;
 
 
-// Struttura del messaggio multicast: 
-// Questo messaggio deve includere un campo id per poterlo identificare nella coda 
-// il campo payload che contiene il messaggio effettivo da consegnare
-// forse per renderlo più compatibile, il campo payload 
-// in futuro potrà essere un puntatore a void
-// il vettore di destinazioni con il relativo campo per il contatore
+// Multicast message structure:
+// This message must include an id field to identify it in the queue
+// a payload field that contains the actual message to be delivered
+// to make it more flexible the payload could become a void pointer in the future
+// the destination vector with the related counter field
 typedef struct {
     msgtype_t type;
     int msg_id;
@@ -33,12 +32,11 @@ typedef struct {
 }multicast_msg_t;
 
 
-// Struttura del messaggio propose:
-// questo tipo di messaggio viene usato per inviare 
-// la porposta per il timestamp da assegnare ad un 
-// messaggio di cui è stato precedentemente fatto il multicast
-// deve quindi contenere il msg_id del messaggio mandato in broadcast
-// il group id del gruppo che ha fatto la proposta
+// Propose message structure:
+// this message type is used to send the proposal for the timestamp to be assigned
+// to a message that was previously multicast
+// it must therefore contain the msg_id of the broadcast message
+// and the group id of the proposer
 typedef struct {
     msgtype_t type;
     int msg_id;
@@ -46,18 +44,17 @@ typedef struct {
     ts_t lts;
 }propose_msg_t;
 
-// Struttura NODE: Questa struct servirà ad astrarre tutte quelle che sono le variabili 
-// locali ad un processo per evitare l'utilizzo di variabili globali.
-// Per poter implementare l'algoritmo di Skeen, ogni nodo dovrà avere: 
-// - un id 
-// - un vettore lts dove conservare i local timestamps dei messaggi ricevuti
-// - un vettore gts contenente i global timestamps dei messaggi ricevuti
-// - un vettore indicizzato dagli id dei messaggi che tiene traccia 
-//   delle diverse fasi in cui si trovano.
-// - Una coda di messaggi in cui vengono messi i messaggi
-//   in attesa di essere consegnati.
-// - il clock locale 
-// - variabili per tenere sotto controllo i boundaries dei vettori lts e gts: lts_count gts_count
+// NODE structure: this struct abstracts all the local variables
+// of a process to avoid using globals.
+// To implement Skeen's algorithm each node must have:
+// - an id
+// - an lts vector to store local timestamps of received messages
+// - a gts vector containing global timestamps of received messages
+// - a vector indexed by message id that keeps track
+//   of the different phases a message is in
+// - a message queue for messages waiting to be delivered
+// - the local clock
+// - variables to track the boundaries of lts and gts vectors: lts_count gts_count
 typedef struct {
     g_id_t g_id;
     clk_t clock;
@@ -66,7 +63,7 @@ typedef struct {
     phase_t phase[MAX_MESSAGES];
     multicast_msg_t msg_queue[MAX_MESSAGES];
     uint8_t delivered[MAX_MESSAGES];    
-    // PROPOSE per-messaggio (necessario per all-to-all)
+    // PROPOSE per-message (needed for all-to-all)
     propose_msg_t props[MAX_MESSAGES][MAX_NUMBER_OF_GROUPS];
     int propose_count[MAX_MESSAGES];
     
@@ -78,62 +75,62 @@ typedef struct {
 }Node;
 
 
-// ==== FUNZIONI PER LA GESTIONE DELLE STRUTTURE ====
+// ==== FUNCTIONS FOR STRUCTURE MANAGEMENT ====
 
-// Costruttore del nodo
-void init_node(Node &node, g_id_t g_id);
-// Distruttore del nodo
+// Node constructor
+void init_node(Node *node, g_id_t g_id);
+// Node destructor
 //void destroy_node(Node* node);
 
-// Funzione per la creazione di un messaggio multicast: 
-// per costruire questo messaggio è necessario fornire il payload,
-// l'id del messaggio e la lista di destinatari
-void create_multicast_msg(multicast_msg_t &msg, payload_t payload, int id, const g_id_t *dstgrp, int dst_count);
-// Distruttore del messaggio multicast
+// Function to create a multicast message:
+// to build this message you need to provide the payload,
+// the message id and the list of recipients
+void create_multicast_msg(multicast_msg_t *msg, payload_t payload, int id, const g_id_t *dstgrp, int dst_count);
+// Multicast message destructor
 //void destroy_multicast_msg(multicast_msg_t *msg);
 
-// Costruttore del messaggio propose
-void create_propose_msg(propose_msg_t &msg, int id, g_id_t g_id, ts_t lts);
-// Distruttore del messaggio propose
-//oid destroy_propose_msg(propose_msg_t *msg);
+// Propose message constructor
+void create_propose_msg(propose_msg_t *msg, int id, g_id_t g_id, ts_t lts);
+// Propose message destructor
+//void destroy_propose_msg(propose_msg_t *msg);
 
-// Funzione che restituisce true se due timestamp hanno lo stesso clock
-// e lo stesso g_id
+// Function that returns true if two timestamps have the same clock
+// and the same g_id
 uint8_t timestamp_cmp(ts_t a, ts_t b);
 
-// Funzione che riceve in ingresso due timestamps 
-// e restituisce quello con il clock più grande
+// Function that receives two timestamps and returns
+// the one with the larger clock
 ts_t timestamp_max(ts_t a, ts_t b);
 
-// funzione per la copia di messaggi di tipo multicast
+// function to copy multicast messages
 void multicast_msg_cpy(const multicast_msg_t *src, multicast_msg_t *dst);
 
-// funzione per la copia di messaggi di tipo propose
+// function to copy propose messages
 void propose_msg_cpy(const propose_msg_t *src, propose_msg_t *dst);
 
 
 
-// Stub per consegna restituisce -1 se fallisce, 0 se l'invio ha successo
+// Delivery stub: returns -1 on failure, 1 on successful delivery
 int deliver(Node* node, multicast_msg_t* msg);
 
-// ==== FUNZIONI PER IMPLEMENTAZIONE ALGORITMO ==== 
-// Invio messaggio multicast 
+// ==== FUNCTIONS FOR ALGORITHM IMPLEMENTATION ==== 
+// Send multicast message
 int multicast(Node* node, multicast_msg_t* msg);
 
-//  Gestione ricezione messaggi di tipo MULTICAST
+// Handling reception of MULTICAST messages
 int handle_multicast(Node* node, multicast_msg_t* msg);
 
-//  Gestione ricezione messaggi di tipo PROPOSE
+// Handling reception of PROPOSE messages
 int handle_propose(Node* node, propose_msg_t* msg);
 
-//  Funzione per il commit dei messaggi 
+// Function to commit messages
 void commit(Node *node, const multicast_msg_t *msg);
 
-//  Questa funzione si occupa di fare il deliver dei messaggi 
-//  seguendo il total order: cerca tutti i messaggi che sono stati 
-//  COMMITTED ma non ancora delivered, per ognuno di questi, verifica 
-//  che non vi siano messaggi non ancora COMMITTED che abbiano timestamp minore 
-//  del global timestamp (in tal caso significa che questi messaggi dovranno essere delivered prima)
+// This function handles delivering messages following total order:
+// it searches for all messages that are COMMITTED but not yet delivered,
+// and for each of them checks that there are no messages not yet COMMITTED
+// that have a timestamp smaller than the global timestamp (in that case
+// those messages must be delivered first)
 void TOrder_deliver(Node *node);
 
 #endif 

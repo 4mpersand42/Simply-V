@@ -7,9 +7,9 @@
 #define ETH_DATA_LEN 1500
 #define ETH_FRAME_LEN 1514
 static int g_qid = -1;
-// Per consentire l'utilizzo su risc V potrebbe essere necessario 
-// definire le macro: ETH_DATA_LEN, ETH_FRAME_LEN, ETH_ALEN e la struct ethhdr
-// Structure of the ethernet frame 
+// To enable use on RISC-V it may be necessary
+// to define the macros: ETH_DATA_LEN, ETH_FRAME_LEN, ETH_ALEN and the struct ethhdr
+// Structure of the ethernet frame
 
 struct ethhdr {
 	unsigned char	h_dest[ETH_ALEN];	/* destination eth addr	*/
@@ -26,16 +26,16 @@ union ethframe{
     unsigned char buffer[ETH_FRAME_LEN];
 };
 
-// utility per convertire in network byte order
-uint16_t netbyteorder(uint16_t x); // è la stessa cosa di htons usare quella nel caso sia disponibile
+// utility to convert to network byte order
+uint16_t netbyteorder(uint16_t x); // same as htons; use that if available
 
-// utility per fare il parsing del messaggio 
-// quando si passa su risk V effettivo l'intestazione andrà modificata
-// questa funzione dovrà ricevere direttamente ethframe e non più sysv_packet_t
+// utility to parse the message
+// when porting to real RISC-V the header will need to be modified
+// this function should receive ethframe directly instead of sysv_packet_t
 void packet_to_heap_msg(void *pr, const union ethframe *p);
 
 
-// Invia e riceve usando System V message queues
+// Send and receive using System V message queues
 int acast_send(Node* node, void* msg, msgtype_t type, g_id_t dst);
-void acast_receive(void *pr, Node* node, void* msg_unused, msgtype_t type);
+void acast_receive(Node* node, void* msg, msgtype_t type);
 #endif

@@ -2,10 +2,10 @@
 #include "sendReceive.h"
 #include "simplyv.h"
 
-// ==== FUNZIONI PER LA GESTIONE DELLE STRUTTURE ====
+// ==== FUNCTIONS FOR STRUCTURE MANAGEMENT ====
 
-// Costruttore del nodo
-void init_node(Node &node, g_id_t g_id){
+// Node constructor
+void init_node(Node *node, g_id_t g_id){
     node->g_id = g_id;
     node->clock = 0;
     node->lts_count = 0;
@@ -30,24 +30,24 @@ void init_node(Node &node, g_id_t g_id){
     node->queue_count = 0;
 }
 
-// Distruttore del nodo
+// Node destructor
 /*void destroy_node(Node* node){
     free(node);
 }*/
 
 
 
-// Inizializzatore del messaggio: Da rivedere 
-void create_multicast_msg(multicast_msg_t &msg, payload_t payload, int id, const g_id_t *dstgrp, int dst_count){
+// Message initializer: To review
+void create_multicast_msg(multicast_msg_t *msg, payload_t payload, int id, const g_id_t *dstgrp, int dst_count){
     msg->type = MULTICAST;
-    msg->msg_id=id;
-    strcpy(msg->payload, payload);
-    for (int i = 0;i<dst_count;i++){
+    msg->msg_id = id;
+    memcpy(msg->payload, payload, sizeof(msg->payload));
+    for (int i = 0; i < dst_count; i++){
         msg->dstgrp[i] = dstgrp[i];
     }
-    msg->dst_count=dst_count;
+    msg->dst_count = dst_count;
 }
-// Distruttore del messaggio
+// Message destructor
 /*void destroy_multicast_msg(multicast_msg_t *msg){
     free(msg);
 }*/
@@ -59,10 +59,11 @@ void multicast_msg_cpy(const multicast_msg_t *src, multicast_msg_t *dst){
     }
     dst->msg_id = src->msg_id;
     memcpy(dst->payload, src->payload, MAXPAYLOAD_LEN);
+    dst->type = src->type; 
 }
 
 
-void create_propose_msg(propose_msg_t &msg, int id, g_id_t g_id, ts_t lts){
+void create_propose_msg(propose_msg_t *msg, int id, g_id_t g_id, ts_t lts){
     msg->type = PROPOSE;
     msg->msg_id = id;
     msg->g_id = g_id;
@@ -77,6 +78,7 @@ void propose_msg_cpy(const propose_msg_t *src, propose_msg_t *dst){
     dst->g_id = src->g_id;
     dst->lts = src->lts;
     dst->msg_id = src->msg_id;
+    dst->type = src->type;
 }
 
 uint8_t timestamp_cmp(ts_t a, ts_t b){
@@ -92,64 +94,67 @@ ts_t timestamp_max(ts_t a, ts_t b){
 
 
 
-// Stub per consegna restituisce -1 se fallisce, 1 se l'invio ha successo
+// Delivery stub: returns -1 on failure, 1 on successful delivery
 int deliver(Node* node, multicast_msg_t* msg){
     if(msg != NULL){
-        printf("PID:%d Messaggio con timestamp: g_id %d, clock:%d consegnato\n",getpid(),node->gts[msg->msg_id].g_id,node->gts[msg->msg_id].clock);
-        printf("CONTENUTO DEL MESSAGGIO: %s\n",msg->payload);
+        printf("Message with timestamp: g_id %d, clock:%d delivered\n",node->gts[msg->msg_id].g_id,node->gts[msg->msg_id].clock);
+        printf("MESSAGE CONTENT: %s\n",msg->payload);
         return 1;
     }
     else 
         return -1;
 }
-// ==== FUNZIONI PER IMPLEMENTAZIONE ALGORITMO ==== 
-// Invio messaggio multicast: Invia il messaggio multicast 
-// ad ogni destinatario indicato nel messaggio
+// ==== FUNCTIONS FOR ALGORITHM IMPLEMENTATION ==== 
+// Send multicast message: Sends the multicast message
+// to every recipient listed in the message
 int multicast(Node* node, multicast_msg_t* msg){
     int err;
-    printf("Il processo con PID: %d invia un messaggio MULTICAST con id: %d\n",getpid(),msg->msg_id);
+    printf("The node sends a MULTICAST message with id: %d\n", msg->msg_id);
     for(int i = 0; i<msg->dst_count;i++){
         err = acast_send(node, msg,MULTICAST,msg->dstgrp[i]);
-        if (err < 0) return -1;
+        if (err < 0) {
+            printf("ERROR: PID:%d unable to send MULTICAST message with id: %d to destination group: %d (acast_send=%d)\n", msg->msg_id, msg->dstgrp[i], err);
+            return -1;
+        }
     }
     return 1;
 }
 
-//  Gestione ricezione messaggi di tipo MULTICAST
-//  Questa funzione si occupa solamente di aggiungere il messaggio multicast al
-//  nodo e di aggiornarne i campi.
-//  Dopo aver ricevuto il messaggio multicast, il processo chiamante dovrà 
-//  inviare le porposte di timestamp a tutti i destinatari del messaggio 
+// Handling reception of MULTICAST messages
+// This function only adds the multicast message to the
+// node and updates its fields.
+// After receiving the multicast message, the calling process must
+// send timestamp proposals to all recipients of the message
 int handle_multicast(Node* node, multicast_msg_t* msg){
-    printf("Il processo con PID: %d ha ricevuto un messaggio MULTICAST con id: %d\n",getpid(),msg->msg_id); // # DEBUG
+    printf("Received a MULTICAST message with id: %d\n",msg->msg_id); // # DEBUG
     
-    node->clock++; // incrementa il clock LOCALE
+    node->clock++; // increment local clock
     node->lts[msg->msg_id].clock = node->clock; // |
-    node->lts[msg->msg_id].g_id = node->g_id;   // | salva il timestamp nel vettore dei local timestamp
+    node->lts[msg->msg_id].g_id = node->g_id;   // | save the timestamp in the local timestamp vector
     node->lts_count++; 
     node->phase[msg->msg_id] = PROPOSED;
     node->phase_count++;
-    multicast_msg_cpy(msg, &node->msg_queue[msg->msg_id]); // aggiungi il messaggio al buffer 
+    multicast_msg_cpy(msg, &node->msg_queue[msg->msg_id]); // add the message to the buffer 
     node->queue_count++;
-    printf("PID:%d, proposed timestamp: (g_id:%d ,clock:%d )\n",getpid(),node->g_id,node->clock);
+    printf("Proposed timestamp: (g_id:%d ,clock:%d )\n",node->g_id,node->clock);
     return 1;
 }
-//  Gestione ricezione messaggi di tipo PROPOSE
-//  Questa funzione si occupa solo di aggiornare i campi
-//  del nodo alla ricezione di ogni proposta.
+// Handling reception of PROPOSE messages
+// This function only updates the node fields
+// upon receiving each proposal.
 int handle_propose(Node* node, propose_msg_t* msg){
-    printf("Il processo con PID: %d ha ricevuto un messaggio PROPOSE con id: %d\n",getpid(),msg->msg_id);
+    printf("Received a PROPOSE message with id: %d\n",msg->msg_id);
     int id = msg->msg_id;
     int count = node->propose_count[id];
 
-    if(count >= MAX_NUMBER_OF_GROUPS) return -1;
+    if(count >= MAX_NUMBER_OF_GROUPS - 1) return -1;
 
 
-    // Copia il messaggio in coda
+    // Copy the message into the queue
     propose_msg_cpy(msg, &node->props[id][count]);
-    // Incrementa il contatore delle proposte ricevute 
+    // Increment the counter of received proposals
     node->propose_count[id]++;
-    // Se abbiamo tutte le propose dai destinatari, possiamo committare
+    // If we have all proposals from recipients, we can commit
     if(node->propose_count[id] == node->msg_queue[id].dst_count){
         commit(node, &node->msg_queue[id]);
         TOrder_deliver(node);
@@ -160,9 +165,9 @@ int handle_propose(Node* node, propose_msg_t* msg){
 
 void commit(Node* node, const multicast_msg_t *msg){
     int id = msg->msg_id;
-    // Calcola il global timestamp come il timestamp con clock maggiore nel vettore di proposte
+    // Compute the global timestamp as the timestamp with the largest clock in the proposals vector
     unsigned int max_clock = 0;
-    int index;
+    int index = 0;
     for(int i = 0; i < node->propose_count[id]; i++){
         if(max_clock < node->props[id][i].lts.clock){
             max_clock = node->props[id][i].lts.clock;
@@ -172,13 +177,13 @@ void commit(Node* node, const multicast_msg_t *msg){
     node->gts[id].clock = node->props[id][index].lts.clock;
     node->gts[id].g_id = node->props[id][index].lts.g_id;
     node->gts_count++;
-   // Aggiorna il clock
+    // Update the clock
     if(node->clock<node->gts[msg->msg_id].clock) {
         node->clock = node->gts[msg->msg_id].clock;
     }
-    // Committa il messaggio
+    // Commit the message
     node->phase[msg->msg_id]=COMMITTED;
-    printf("Il processo con PID: %d ha fatto il commit con id: %d\n",getpid(),msg->msg_id);
+    printf("Committed with id: %d\n",msg->msg_id);
 
 }
 
@@ -189,16 +194,16 @@ static uint8_t ts_less(ts_t a, ts_t b) {
 }
 
 void TOrder_deliver(Node *node){
-    printf("Il processo con PID: %d ha iniziato la consegna dei messaggi...\n",getpid());
+    printf("Started message delivery...\n");
 
-    for(int i = 0; i < node->phase_count; i++){
+    for(int i = 0; i < MAX_MESSAGES; i++){
         if(node->phase[i] == COMMITTED && node->delivered[i] == 0){
 
             uint8_t can_deliver = true;
 
-            for(int j = 0; j < node->phase_count; j++){
+            for(int j = 0; j < MAX_MESSAGES; j++){
                 if(node->phase[j] == PROPOSED && ts_less(node->lts[j], node->gts[i])){
-                    // esiste un messaggio ancora non committed che dovrebbe venire prima
+                    // there exists a message not yet committed that should come before
                     can_deliver = false;
                     break;
                 }
@@ -211,5 +216,5 @@ void TOrder_deliver(Node *node){
             }
         }
     }
-    printf("Il processo con PID: %d consegna dei messaggi completata\n",getpid());
+    printf("Message delivery completed\n");
 }
